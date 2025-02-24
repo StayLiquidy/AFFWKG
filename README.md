@@ -1,3 +1,4 @@
+###### *This is for experimental/educational purposes only I do not condone these actions this is purely for example*
 # AFFWKG
 
 ### Prerequisites - Download Koalageddon from [HERE](https://github.com/acidicoala/Koalageddon) and .pak files from [HERE]()
@@ -21,3 +22,5 @@ Then move the downloaded zip file named paks.zip to this directory and unzip it,
 ![alt text](https://i.imgur.com/2rwIwLo.gif "Gif 1")
 
 ### Finally open Ark and Enjoy!
+
+###### *This is for experimental/educational purposes only I do not condone these actions this is purely for example*
