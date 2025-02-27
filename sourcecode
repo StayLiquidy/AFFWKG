@@ -1,0 +1,91 @@
+import os
+import json
+import zipfile
+import tkinter as tk
+from tkinter import filedialog
+import sys
+import shutil
+
+CONFIG_FILE = "config.json"
+
+# Determine correct directory whether running as script or .exe
+if getattr(sys, 'frozen', False):
+    SCRIPT_DIR = os.path.dirname(sys.executable)  # Running as .exe
+else:
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # Running as script
+
+ZIP_FILE_PATH = os.path.join(SCRIPT_DIR, "paks.zip")
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
+
+def load_config():
+    """Load the saved destination folder path from the config file."""
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r") as f:
+            config = json.load(f)
+        return config.get("destination_folder")
+    return None
+
+def save_config(destination_folder):
+    """Save the selected destination folder path to the config file."""
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({"destination_folder": destination_folder}, f)
+
+def select_destination_folder():
+    """Prompt the user to select a destination folder if not already saved."""
+    root = tk.Tk()
+    root.withdraw()
+    folder_selected = filedialog.askdirectory(title="Select Destination Folder")
+    if folder_selected:
+        save_config(folder_selected)
+    return folder_selected
+
+def unzip_file(zip_file_path, destination_folder):
+    """Extract the zip file to the specified destination folder."""
+    try:
+        # Ensure the target folder exists
+        os.makedirs(destination_folder, exist_ok=True)
+
+        with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+            for member in zip_ref.namelist():
+                target_path = os.path.join(destination_folder, member)
+
+                # Remove existing files to prevent permission errors
+                if os.path.exists(target_path):
+                    try:
+                        if os.path.isdir(target_path):
+                            shutil.rmtree(target_path)
+                        else:
+                            os.remove(target_path)
+                    except PermissionError:
+                        print(f"Warning: Could not remove {target_path}. Check permissions.")
+
+                zip_ref.extract(member, destination_folder)
+        
+        print(f"Successfully extracted {zip_file_path} to {destination_folder}")
+
+    except zipfile.BadZipFile:
+        print("Error: The selected file is not a valid zip file.")
+    except PermissionError:
+        print("Error: Permission denied. Try extracting to a different folder.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+def main():
+    if not os.path.exists(ZIP_FILE_PATH):
+        print(f"Error: 'paks.zip' not found in {SCRIPT_DIR}.")
+        input("Press Enter to exit...")
+        return
+
+    destination_folder = load_config()
+
+    if not destination_folder:
+        print("No destination folder set. Please select one.")
+        destination_folder = select_destination_folder()
+    
+    if destination_folder:
+        unzip_file(ZIP_FILE_PATH, destination_folder)
+    else:
+        print("No folder selected. Exiting...")
+
+if __name__ == "__main__":
+    main()
