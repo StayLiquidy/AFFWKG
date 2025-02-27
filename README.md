@@ -3,7 +3,7 @@
 # Automated Installer Now Available [HERE](https://mega.nz/file/EQ8U2KAR#IoeQqs18_uKIiOlJ0zBzbf4QDizQWOmbYlGGsoFPASo)
 ### Follow Instructions In Filed README.txt
 
-### -----------------------------------------------------------------------------------------------------------------------------
+### --------------------------------------------------------------------------------------
 
 # MANUAL PROCESS BELOW 
 ### AFFWKG
