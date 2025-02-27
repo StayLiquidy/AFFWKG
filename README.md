@@ -1,5 +1,12 @@
 ###### *This is for experimental/educational purposes only I do not condone these actions this is purely for example*
-# AFFWKG
+
+# Automated Installer Now Available [HERE](https://mega.nz/file/EQ8U2KAR#IoeQqs18_uKIiOlJ0zBzbf4QDizQWOmbYlGGsoFPASo)
+### Follow Instructions In Filed README.txt
+
+### -----------------------------------------------------------------------------------------------------------------------------
+
+# MANUAL PROCESS BELOW 
+### AFFWKG
 
 ### Prerequisites - Download Koalageddon from [HERE](https://github.com/acidicoala/Koalageddon) and .pak files from [HERE](https://anonymfile.com/mkXyo/paks.zip)
 
