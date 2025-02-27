@@ -1,7 +1,7 @@
-###### *This is for experimental/educational purposes only I do not condone these actions this is purely for example*
+###### *This is for experimental/educational purposes only. I do not condone these actions. This is purely, for example*
 
-# Automated Installer Now Available [HERE](https://mega.nz/file/ZAEBHZYK#uZyXlRIuP26coiRYhL0k5oCdxHkWgA4Wz_W_qMXzIU4)
-### Follow Instructions In Filed README.txt
+# Automated Installer Now Available [HERE](https://mega.nz/file/kEty2bxB#YFfoDxABx6JKb8epqy8ImFWIBAWJhpdmLakNB8dkuBg)
+### Extract .rar file and follow README.txt instructions located in the File
 
 ### --------------------------------------------------------------------------------------
 
@@ -32,4 +32,4 @@ Then move the downloaded zip file named paks.zip to this directory and unzip it,
 
 ### Finally open Ark and Enjoy!
 
-###### *This is for experimental/educational purposes only I do not condone these actions this is purely for example*
+###### *This is for experimental/educational purposes only. I do not condone these actions. This is purely, for example*
