@@ -1,6 +1,6 @@
 ###### *This is for experimental/educational purposes only I do not condone these actions this is purely for example*
 
-# Automated Installer Now Available [HERE](https://mega.nz/file/EQ8U2KAR#IoeQqs18_uKIiOlJ0zBzbf4QDizQWOmbYlGGsoFPASo)
+# Automated Installer Now Available [HERE](https://mega.nz/file/ZAEBHZYK#uZyXlRIuP26coiRYhL0k5oCdxHkWgA4Wz_W_qMXzIU4)
 ### Follow Instructions In Filed README.txt
 
 ### --------------------------------------------------------------------------------------
