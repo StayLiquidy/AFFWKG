@@ -1,6 +1,6 @@
 ###### *This is for experimental/educational purposes only. I do not condone these actions. This is purely, for example*
 
-# Automated Installer Now Available [HERE](https://mega.nz/file/kEty2bxB#YFfoDxABx6JKb8epqy8ImFWIBAWJhpdmLakNB8dkuBg)
+# Automated Installer Now Available [HERE](https://mega.nz/file/gQciwB5Y#ArRhKn4YI5Y7v5uGM7IO0uMkq9tTUBrTII4zXIxhe3s)
 ### Extract .rar file and follow README.txt instructions located in the File
 
 ### --------------------------------------------------------------------------------------
