@@ -6,7 +6,7 @@
 
 ### --------------------------------------------------------------------------------------
 
-# MANUAL PROCESS BELOW 
+# MANUAL PROCESS BELOW - depreciated
 ### AFFWKG
 
 ### Prerequisites - Download Koalageddon from [HERE](https://github.com/acidicoala/Koalageddon) and .pak files from [HERE](https://anonymfile.com/mkXyo/paks.zip)
