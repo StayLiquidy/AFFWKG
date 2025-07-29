@@ -4,7 +4,7 @@
 ###### ^ Updated as of  7/28/2025
 ### Extract .rar file and follow README.txt instructions located in the File
 
-### ─────────────────────────────────────────────────────────
+### •───────────────────────────⋅☾☽⋅───────────────────────────•
 
 # MANUAL PROCESS BELOW - depreciated
 ### AFFWKG
