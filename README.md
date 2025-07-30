@@ -2,7 +2,7 @@
 
 ### •───────────────────────────⋅☾☽⋅───────────────────────────•
 
-# Automated Installer Now Available [HERE](https://github.com/StayLiquidy/AFFWKG/releases/download/release-v0.9.4/AFFWKG-v0.9.4.zip)
+# Automated Installer Now Available [HERE](https://github.com/StayLiquidy/AFFWKG/releases/download/release-v0.9.5/AFFWKG-v0.9.5.zip)
 ###### ^ Updated as of  7/29/2025
 ### Extract .zip file and follow README.txt instructions located in the File
 
