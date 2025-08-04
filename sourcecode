@@ -1,37 +1,99 @@
 import os
 import json
+import winreg
 import zipfile
 import tkinter as tk
 from tkinter import filedialog
+from tqdm import tqdm
 import sys
 import shutil
+import requests
 
 CONFIG_FILE = "config.json"
 
-# Determine correct directory whether running as script or .exe
+# Determine the correct directory
 if getattr(sys, 'frozen', False):
-    SCRIPT_DIR = os.path.dirname(sys.executable)  # Running as .exe
+    SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))  # Running as script
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-ZIP_FILE_PATH = os.path.join(SCRIPT_DIR, "paks.zip")
+ZIP_FILE_NAME = "paks.zip"
+ZIP_FILE_PATH = os.path.join(SCRIPT_DIR, ZIP_FILE_NAME)
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 
+# GitHub raw text file containing latest Dropbox link
+LINK_SOURCE_URL = "https://raw.githubusercontent.com/StayLiquidy/AFFWKG/refs/heads/main/link.txt"
+# Optional fallback Dropbox link if GitHub fails
+FALLBACK_DROPBOX_URL = "https://www.dropbox.com/scl/fi/pa30pt80hu6jnly5ma0q9/paks.zip?rlkey=brpsh3thp6m78b6mad0k6lslo&st=dw8ti7tq&dl=1"
+
+def get_dropbox_url():
+    try:
+        print("Fetching latest Dropbox link from GitHub...")
+        r = requests.get(LINK_SOURCE_URL, timeout=5)
+        r.raise_for_status()
+        url = r.text.strip()
+        if url.startswith("http"):
+            return url
+        else:
+            raise ValueError("Invalid URL format.")
+    except Exception as e:
+        print(f"Failed to fetch Dropbox URL: {e}")
+        print("Falling back to hardcoded link.")
+        return FALLBACK_DROPBOX_URL
+
+def get_steam_path_from_registry():
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            steam_path, _ = winreg.QueryValueEx(key, "SteamPath")
+            return steam_path
+    except Exception:
+        return None
+
+def find_additional_library_folders(steam_path):
+    vdf_path = os.path.join(steam_path, "steamapps", "libraryfolders.vdf")
+    library_paths = [os.path.join(steam_path, "steamapps", "common")]
+
+    if os.path.exists(vdf_path):
+        try:
+            with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if '"' in line:
+                        parts = line.strip().split('"')
+                        if len(parts) >= 5 and os.path.exists(parts[3]):
+                            library_paths.append(os.path.join(parts[3], "steamapps", "common"))
+        except Exception:
+            pass
+
+    return library_paths
+
+def find_ark_install_path():
+    steam_path = get_steam_path_from_registry()
+    if not steam_path:
+        return None
+
+    library_paths = find_additional_library_folders(steam_path)
+    ark_subpath = os.path.join("ARK Survival Ascended", "ShooterGame", "Content", "Paks")
+
+    for lib_path in library_paths:
+        ark_path = os.path.join(lib_path, ark_subpath)
+        if os.path.exists(ark_path):
+            return ark_path
+
+    return None
+
 def load_config():
-    """Load the saved destination folder path from the config file."""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
-        return config.get("destination_folder")
+        return config.get("destination_folder").replace("/", "\\")
     return None
 
 def save_config(destination_folder):
-    """Save the selected destination folder path to the config file."""
+    path = destination_folder.replace("\\", "/")
     with open(CONFIG_FILE, "w") as f:
-        json.dump({"destination_folder": destination_folder}, f)
+        json.dump({"destination_folder": path}, f)
 
 def select_destination_folder():
-    """Prompt the user to select a destination folder if not already saved."""
     root = tk.Tk()
     root.withdraw()
     folder_selected = filedialog.askdirectory(title="Select Destination Folder")
@@ -39,17 +101,37 @@ def select_destination_folder():
         save_config(folder_selected)
     return folder_selected
 
-def unzip_file(zip_file_path, destination_folder):
-    """Extract the zip file to the specified destination folder."""
-    try:
-        # Ensure the target folder exists
-        os.makedirs(destination_folder, exist_ok=True)
+def download_from_dropbox():
+    dropbox_url = get_dropbox_url()
 
+    try:
+        print(f"Downloading from: {dropbox_url}")
+        with requests.get(dropbox_url, stream=True) as r:
+            r.raise_for_status()
+            total_size = int(r.headers.get('content-length', 0))
+            block_size = 8192
+            progress_bar = tqdm(total=total_size, unit='B', unit_scale=True, desc='Downloading', ncols=80)
+
+            with open(ZIP_FILE_PATH, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=block_size):
+                    if chunk:
+                        f.write(chunk)
+                        progress_bar.update(len(chunk))
+            progress_bar.close()
+
+        print(f"Downloaded to {ZIP_FILE_PATH}")
+        return True
+
+    except Exception as e:
+        print(f"Download failed: {e}")
+        return False
+
+def unzip_file(zip_file_path, destination_folder):
+    try:
+        os.makedirs(destination_folder, exist_ok=True)
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
             for member in zip_ref.namelist():
                 target_path = os.path.join(destination_folder, member)
-
-                # Remove existing files to prevent permission errors
                 if os.path.exists(target_path):
                     try:
                         if os.path.isdir(target_path):
@@ -58,13 +140,10 @@ def unzip_file(zip_file_path, destination_folder):
                             os.remove(target_path)
                     except PermissionError:
                         print(f"Warning: Could not remove {target_path}. Check permissions.")
-
                 zip_ref.extract(member, destination_folder)
-        
         print(f"Successfully extracted {zip_file_path} to {destination_folder}")
-
     except zipfile.BadZipFile:
-        print("Error: The selected file is not a valid zip file.")
+        print("Error: The downloaded file is not a valid zip file.")
     except PermissionError:
         print("Error: Permission denied. Try extracting to a different folder.")
     except Exception as e:
@@ -72,17 +151,28 @@ def unzip_file(zip_file_path, destination_folder):
 
 def main():
     if not os.path.exists(ZIP_FILE_PATH):
-        print(f"Error: 'paks.zip' not found in {SCRIPT_DIR}.")
-        input("Press Enter to exit...")
-        return
+        print("ZIP file not found. Downloading from Dropbox...")
+        success = download_from_dropbox()
+        if not success:
+            print("Failed to download ZIP file.")
+            input("Press Enter to exit...")
+            return
+    else:
+        print("ZIP file already exists. Skipping download.")
 
     destination_folder = load_config()
-
     if not destination_folder:
-        print("No destination folder set. Please select one.")
-        destination_folder = select_destination_folder()
-    
+        print("No saved path found. Trying to auto-detect ARK install...")
+        destination_folder = find_ark_install_path()
+        if destination_folder:
+            print(f"Auto-detected ARK path: {destination_folder}")
+            save_config(destination_folder)
+        else:
+            print("Could not auto-detect ARK install. Please select folder manually.")
+            destination_folder = select_destination_folder()
+
     if destination_folder:
+        print(f"Using destination: {destination_folder}")
         unzip_file(ZIP_FILE_PATH, destination_folder)
     else:
         print("No folder selected. Exiting...")
