@@ -8,6 +8,7 @@ from tqdm import tqdm
 import sys
 import shutil
 import requests
+import gdown
 
 CONFIG_FILE = "config.json"
 
@@ -21,14 +22,14 @@ ZIP_FILE_NAME = "paks.zip"
 ZIP_FILE_PATH = os.path.join(SCRIPT_DIR, ZIP_FILE_NAME)
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
 
-# GitHub raw text file containing latest Dropbox link
+# GitHub raw text file containing latest Google Drive direct download link
 LINK_SOURCE_URL = "https://raw.githubusercontent.com/StayLiquidy/AFFWKG/refs/heads/main/link.txt"
-# Optional fallback Dropbox link if GitHub fails
-FALLBACK_DROPBOX_URL = "https://www.dropbox.com/scl/fi/pa30pt80hu6jnly5ma0q9/paks.zip?rlkey=brpsh3thp6m78b6mad0k6lslo&st=dw8ti7tq&dl=1"
+# Optional fallback Google Drive link if GitHub fails
+FALLBACK_DRIVE_URL = "https://drive.google.com/uc?id=YOUR_FILE_ID"
 
-def get_dropbox_url():
+def get_drive_url():
     try:
-        print("Fetching latest Dropbox link from GitHub...")
+        print("Fetching latest Google Drive link from GitHub...")
         r = requests.get(LINK_SOURCE_URL, timeout=5)
         r.raise_for_status()
         url = r.text.strip()
@@ -37,13 +38,13 @@ def get_dropbox_url():
         else:
             raise ValueError("Invalid URL format.")
     except Exception as e:
-        print(f"Failed to fetch Dropbox URL: {e}")
+        print(f"Failed to fetch Google Drive URL: {e}")
         print("Falling back to hardcoded link.")
-        return FALLBACK_DROPBOX_URL
+        return FALLBACK_DRIVE_URL
 
 def get_steam_path_from_registry():
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\\Valve\\Steam") as key:
             steam_path, _ = winreg.QueryValueEx(key, "SteamPath")
             return steam_path
     except Exception:
@@ -84,46 +85,49 @@ def find_ark_install_path():
 def load_config():
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
-            config = json.load(f)
-        return config.get("destination_folder").replace("/", "\\")
-    return None
+            return json.load(f)
+    return {}
 
-def save_config(destination_folder):
-    path = destination_folder.replace("\\", "/")
+def save_config(config):
     with open(CONFIG_FILE, "w") as f:
-        json.dump({"destination_folder": path}, f)
+        json.dump(config, f)
 
-def select_destination_folder():
+def select_destination_folder(config):
     root = tk.Tk()
     root.withdraw()
     folder_selected = filedialog.askdirectory(title="Select Destination Folder")
     if folder_selected:
-        save_config(folder_selected)
+        config["destination_folder"] = folder_selected.replace("\\", "/")
+        save_config(config)
     return folder_selected
 
-def download_from_dropbox():
-    dropbox_url = get_dropbox_url()
-
+def download_with_gdown(drive_url):
     try:
-        print(f"Downloading from: {dropbox_url}")
-        with requests.get(dropbox_url, stream=True) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
-            block_size = 8192
-            progress_bar = tqdm(total=total_size, unit='B', unit_scale=True, desc='Downloading', ncols=80)
+        # Extract file ID from the URL
+        file_id = None
+        if "id=" in drive_url:
+            file_id = drive_url.split("id=")[-1].split("&")[0]
+        elif "/d/" in drive_url:
+            file_id = drive_url.split("/d/")[1].split("/")[0]
 
-            with open(ZIP_FILE_PATH, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=block_size):
-                    if chunk:
-                        f.write(chunk)
-                        progress_bar.update(len(chunk))
-            progress_bar.close()
+        if not file_id:
+            print("Invalid Google Drive URL.")
+            return False
 
-        print(f"Downloaded to {ZIP_FILE_PATH}")
-        return True
+        gdrive_url = f"https://drive.google.com/uc?id={file_id}"
+
+        print(f"Downloading with gdown from: {gdrive_url}")
+        gdown.download(gdrive_url, ZIP_FILE_PATH, quiet=False)
+
+        if os.path.exists(ZIP_FILE_PATH) and os.path.getsize(ZIP_FILE_PATH) > 1000:
+            print(f"Downloaded to {ZIP_FILE_PATH}")
+            return True
+        else:
+            print("Download failed or incomplete.")
+            return False
 
     except Exception as e:
-        print(f"Download failed: {e}")
+        print(f"gdown download failed: {e}")
         return False
 
 def unzip_file(zip_file_path, destination_folder):
@@ -150,9 +154,22 @@ def unzip_file(zip_file_path, destination_folder):
         print(f"Unexpected error: {e}")
 
 def main():
+    config = load_config()
+    latest_url = get_drive_url()
+
+    # Check if we already know the last link
+    last_url = config.get("last_url")
+
+    if last_url != latest_url:
+        print("Update detected! Removing old ZIP and redownloading...")
+        if os.path.exists(ZIP_FILE_PATH):
+            os.remove(ZIP_FILE_PATH)
+        config["last_url"] = latest_url
+        save_config(config)
+
     if not os.path.exists(ZIP_FILE_PATH):
-        print("ZIP file not found. Downloading from Dropbox...")
-        success = download_from_dropbox()
+        print("ZIP file not found. Downloading with gdown...")
+        success = download_with_gdown(latest_url)
         if not success:
             print("Failed to download ZIP file.")
             input("Press Enter to exit...")
@@ -160,16 +177,17 @@ def main():
     else:
         print("ZIP file already exists. Skipping download.")
 
-    destination_folder = load_config()
+    destination_folder = config.get("destination_folder")
     if not destination_folder:
         print("No saved path found. Trying to auto-detect ARK install...")
         destination_folder = find_ark_install_path()
         if destination_folder:
             print(f"Auto-detected ARK path: {destination_folder}")
-            save_config(destination_folder)
+            config["destination_folder"] = destination_folder.replace("\\", "/")
+            save_config(config)
         else:
             print("Could not auto-detect ARK install. Please select folder manually.")
-            destination_folder = select_destination_folder()
+            destination_folder = select_destination_folder(config)
 
     if destination_folder:
         print(f"Using destination: {destination_folder}")
