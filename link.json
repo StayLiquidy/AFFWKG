@@ -1,6 +1,21 @@
 {
-  "version": "3.0",
+  "version": "5.10.26",
   "zip_name": "paks.zip",
-  "provider": "gofile",
-  "folder_url": "https://gofile.io/d/XBEOYa"
+  "provider": "github_release",
+  "owner": "StayLiquidy",
+  "repo": "AFFWKG",
+  "tag": "paks-v5.10.26",
+  "assets": [
+    "paks.z01",
+    "paks.z02",
+    "paks.z03",
+    "paks.z04",
+    "paks.z05",
+    "paks.z06",
+    "paks.z07",
+    "paks.z08",
+    "paks.z09",
+    "paks.z10",
+    "paks.zip"
+  ]
 }
