@@ -1,49 +1,90 @@
 import os
+import sys
 import json
-import winreg
+import shutil
 import zipfile
+import hashlib
+import winreg
+import requests
 import tkinter as tk
 from tkinter import filedialog
 from tqdm import tqdm
-import sys
-import shutil
-import requests
-import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote
 
-# -----------------------------
-# Paths / config
-# -----------------------------
+# =========================
+# CONFIG
+# =========================
+
+# Your public GitHub raw link.json URL.
+# Example:
+# https://raw.githubusercontent.com/StayLiquidy/AFFWKG/refs/heads/main/link.json
+MANIFEST_URL = "https://raw.githubusercontent.com/StayLiquidy/AFFWKG/refs/heads/main/link.json"
+
+MAX_PARALLEL_DOWNLOADS = 3
+REQUEST_TIMEOUT = 30
+CHUNK_SIZE = 1024 * 1024  # 1 MB
+
+# =========================
+# PATH SETUP
+# =========================
+
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
-ZIP_FILE_NAME = "paks.zip"
-ZIP_FILE_PATH = os.path.join(SCRIPT_DIR, ZIP_FILE_NAME)
-PARTS_DIR = os.path.join(SCRIPT_DIR, "download_parts")
-
-# GitHub raw JSON manifest. Change this if your repo/path changes.
-# Example GitHub file location: StayLiquidy/AFFWKG/main/link.json
-MANIFEST_URL = "https://raw.githubusercontent.com/StayLiquidy/AFFWKG/refs/heads/main/link.json"
-
-# Optional fallback manifest if GitHub is down. Leave files empty unless needed.
-FALLBACK_MANIFEST = {
-    "version": "fallback",
-    "zip_name": "paks.zip",
-    "files": []
-}
-
-REQUEST_TIMEOUT = 30
-CHUNK_SIZE = 1024 * 1024  # 1 MB
+DOWNLOAD_DIR = os.path.join(SCRIPT_DIR, "downloads")
+DEFAULT_ZIP_NAME = "paks.zip"
 
 
-# -----------------------------
-# Steam / ARK detection
-# -----------------------------
+# =========================
+# CONFIG HELPERS
+# =========================
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_config(config):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+
+
+def manifest_signature(manifest):
+    raw = json.dumps(manifest, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def hash_file(path, algorithm="sha256"):
+    algorithm = algorithm.lower()
+    if algorithm == "md5":
+        h = hashlib.md5()
+    elif algorithm == "sha256":
+        h = hashlib.sha256()
+    else:
+        raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(16 * 1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+# =========================
+# STEAM / ARK PATH DETECTION
+# =========================
+
 def get_steam_path_from_registry():
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\\Valve\\Steam") as key:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
             steam_path, _ = winreg.QueryValueEx(key, "SteamPath")
             return steam_path
     except Exception:
@@ -58,23 +99,14 @@ def find_additional_library_folders(steam_path):
         try:
             with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
-                    if '"path"' in line or line.strip().startswith('"'):
+                    if '"' in line:
                         parts = line.strip().split('"')
-                        # Newer Steam VDF commonly has: "path"  "D:\\SteamLibrary"
                         if len(parts) >= 5 and os.path.exists(parts[3]):
                             library_paths.append(os.path.join(parts[3], "steamapps", "common"))
         except Exception:
             pass
 
-    # De-duplicate while preserving order
-    seen = set()
-    clean_paths = []
-    for path in library_paths:
-        norm = os.path.normcase(os.path.normpath(path))
-        if norm not in seen:
-            seen.add(norm)
-            clean_paths.append(path)
-    return clean_paths
+    return library_paths
 
 
 def find_ark_install_path():
@@ -93,24 +125,6 @@ def find_ark_install_path():
     return None
 
 
-# -----------------------------
-# Config helpers
-# -----------------------------
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-
-def save_config(config):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
-
-
 def select_destination_folder(config):
     root = tk.Tk()
     root.withdraw()
@@ -121,276 +135,404 @@ def select_destination_folder(config):
     return folder_selected
 
 
-# -----------------------------
-# Manifest / Pixeldrain helpers
-# -----------------------------
-def normalize_pixeldrain_url(url):
-    """Accept either https://pixeldrain.com/u/ID or https://pixeldrain.com/api/file/ID."""
-    url = url.strip()
-    if "pixeldrain.com/u/" in url:
-        file_id = url.split("pixeldrain.com/u/", 1)[1].split("?", 1)[0].split("/", 1)[0]
-        return f"https://pixeldrain.com/api/file/{file_id}"
-    return url
+# =========================
+# MANIFEST
+# =========================
 
+def fetch_manifest():
+    print("Fetching latest link.json from GitHub...")
+    r = requests.get(MANIFEST_URL, timeout=REQUEST_TIMEOUT)
+    r.raise_for_status()
 
-def get_manifest():
-    try:
-        print("Fetching latest Pixeldrain manifest from GitHub...")
-        r = requests.get(MANIFEST_URL, timeout=REQUEST_TIMEOUT)
-        r.raise_for_status()
-        manifest = r.json()
-    except Exception as e:
-        print(f"Failed to fetch manifest from GitHub: {e}")
-        print("Using fallback manifest.")
-        manifest = FALLBACK_MANIFEST
-
-    if not isinstance(manifest, dict):
-        raise ValueError("Manifest must be a JSON object.")
-
-    files = manifest.get("files", [])
-    if not files or not isinstance(files, list):
-        raise ValueError("Manifest must contain a non-empty 'files' list.")
-
-    normalized_files = []
-    for item in files:
-        if isinstance(item, str):
-            normalized_files.append({"url": normalize_pixeldrain_url(item)})
-        elif isinstance(item, dict) and "url" in item:
-            copied = dict(item)
-            copied["url"] = normalize_pixeldrain_url(copied["url"])
-            normalized_files.append(copied)
-        else:
-            raise ValueError("Each manifest file must be a URL string or object with a 'url'.")
-
-    manifest["files"] = normalized_files
+    manifest = r.json()
+    manifest.setdefault("zip_name", DEFAULT_ZIP_NAME)
     manifest.setdefault("version", "unknown")
-    manifest.setdefault("zip_name", ZIP_FILE_NAME)
+
     return manifest
 
 
-def manifest_signature(manifest):
-    stable = json.dumps(manifest, sort_keys=True).encode("utf-8")
-    return hashlib.sha256(stable).hexdigest()
+def github_asset_url(owner, repo, tag, asset_name):
+    safe_asset_name = quote(asset_name)
+
+    if tag.lower() == "latest":
+        return f"https://github.com/{owner}/{repo}/releases/latest/download/{safe_asset_name}"
+
+    safe_tag = quote(tag)
+    return f"https://github.com/{owner}/{repo}/releases/download/{safe_tag}/{safe_asset_name}"
 
 
-def sha256_file(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
+def resolve_manifest(manifest):
+    """
+    Supports:
+
+    Option A: GitHub Release format:
+    {
+      "version": "4.0",
+      "zip_name": "paks.zip",
+      "provider": "github_release",
+      "owner": "StayLiquidy",
+      "repo": "AFFWKG",
+      "tag": "paks-v4",
+      "assets": [
+        "paks.z01",
+        "paks.z02",
+        "paks.zip"
+      ]
+    }
+
+    Option B: Direct files format:
+    {
+      "version": "4.0",
+      "zip_name": "paks.zip",
+      "files": [
+        {"name": "paks.z01", "url": "https://..."},
+        {"name": "paks.zip", "url": "https://..."}
+      ]
+    }
+    """
+
+    provider = str(manifest.get("provider", "")).lower().strip()
+
+    if provider == "github_release":
+        owner = manifest.get("owner")
+        repo = manifest.get("repo")
+        tag = manifest.get("tag", "latest")
+        assets = manifest.get("assets", [])
+
+        if not owner or not repo or not assets:
+            raise ValueError("github_release manifest needs owner, repo, tag, and assets.")
+
+        files = []
+        for asset in assets:
+            if isinstance(asset, str):
+                name = asset
+                item = {"name": name}
+            elif isinstance(asset, dict):
+                name = asset.get("name")
+                item = dict(asset)
+            else:
+                raise ValueError("assets must contain strings or objects.")
+
+            if not name:
+                raise ValueError("Each GitHub release asset needs a name.")
+
+            item["name"] = name
+            item["url"] = github_asset_url(owner, repo, tag, name)
+            files.append(item)
+
+        manifest["files"] = files
+
+    if "files" not in manifest or not isinstance(manifest["files"], list) or not manifest["files"]:
+        raise ValueError("link.json needs a valid files list or github_release assets list.")
+
+    for item in manifest["files"]:
+        if "name" not in item or "url" not in item:
+            raise ValueError("Each file needs name and url.")
+
+    manifest["files"] = sorted_split_files(manifest["files"])
+    return manifest
 
 
-def download_file(url, output_path, expected_sha256=None):
-    temp_path = output_path + ".download"
-    resume_header = {}
-    existing_size = 0
+# =========================
+# DOWNLOAD
+# =========================
+
+def download_one_file(file_item):
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+    name = file_item["name"]
+    url = file_item["url"]
+
+    expected_md5 = file_item.get("md5")
+    expected_sha256 = file_item.get("sha256")
+
+    output_path = os.path.join(DOWNLOAD_DIR, name)
+    temp_path = output_path + ".part"
+
+    # Reuse existing completed files when valid.
+    if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
+        if expected_sha256:
+            print(f"Checking existing SHA256: {name}")
+            actual = hash_file(output_path, "sha256")
+            if actual.lower() == expected_sha256.lower():
+                print(f"Already downloaded and verified: {name}")
+                return output_path
+            print(f"SHA256 mismatch, redownloading: {name}")
+            os.remove(output_path)
+        elif expected_md5:
+            print(f"Checking existing MD5: {name}")
+            actual = hash_file(output_path, "md5")
+            if actual.lower() == expected_md5.lower():
+                print(f"Already downloaded and verified: {name}")
+                return output_path
+            print(f"MD5 mismatch, redownloading: {name}")
+            os.remove(output_path)
+        else:
+            print(f"Already downloaded: {name}")
+            return output_path
 
     if os.path.exists(temp_path):
-        existing_size = os.path.getsize(temp_path)
-        if existing_size > 0:
-            resume_header["Range"] = f"bytes={existing_size}-"
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
 
-    with requests.get(url, stream=True, timeout=REQUEST_TIMEOUT, headers=resume_header) as r:
-        # If server does not support resume, restart from zero.
-        if r.status_code == 200 and existing_size > 0:
-            existing_size = 0
-            resume_header = {}
+    headers = {
+        "User-Agent": "AFFWKG-Updater/1.0"
+    }
+
+    print(f"Starting: {name}")
+    with requests.get(url, stream=True, timeout=REQUEST_TIMEOUT, headers=headers, allow_redirects=True) as r:
+        if r.status_code >= 400:
             try:
-                os.remove(temp_path)
-            except FileNotFoundError:
+                print("Server response:", r.text[:1000])
+            except Exception:
                 pass
-            return download_file(url, output_path, expected_sha256)
+            r.raise_for_status()
 
-        r.raise_for_status()
+        total = int(r.headers.get("content-length", 0))
 
-        total_header = r.headers.get("content-length")
-        total_size = int(total_header) + existing_size if total_header else None
-        mode = "ab" if existing_size > 0 else "wb"
-
-        print(f"Downloading: {os.path.basename(output_path)}")
-        with open(temp_path, mode) as f, tqdm(
-            total=total_size,
-            initial=existing_size,
+        with open(temp_path, "wb") as f, tqdm(
+            total=total,
             unit="B",
             unit_scale=True,
             unit_divisor=1024,
-            desc=os.path.basename(output_path),
+            desc=name,
+            leave=True
         ) as bar:
             for chunk in r.iter_content(chunk_size=CHUNK_SIZE):
                 if chunk:
                     f.write(chunk)
                     bar.update(len(chunk))
 
-    if expected_sha256:
-        print(f"Verifying SHA256 for {os.path.basename(output_path)}...")
-        actual = sha256_file(temp_path)
-        if actual.lower() != expected_sha256.lower():
-            raise ValueError(
-                f"Hash mismatch for {output_path}. Expected {expected_sha256}, got {actual}"
-            )
-
     if os.path.exists(output_path):
         os.remove(output_path)
+
     os.rename(temp_path, output_path)
-    return True
+
+    if os.path.getsize(output_path) < 1000:
+        raise RuntimeError(f"{name} downloaded but appears too small/corrupt.")
+
+    if expected_sha256:
+        print(f"Verifying SHA256: {name}")
+        actual = hash_file(output_path, "sha256")
+        if actual.lower() != expected_sha256.lower():
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"SHA256 mismatch for {name}\n"
+                f"Expected: {expected_sha256}\n"
+                f"Actual:   {actual}"
+            )
+        print(f"SHA256 OK: {name}")
+
+    elif expected_md5:
+        print(f"Verifying MD5: {name}")
+        actual = hash_file(output_path, "md5")
+        if actual.lower() != expected_md5.lower():
+            try:
+                os.remove(output_path)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"MD5 mismatch for {name}\n"
+                f"Expected: {expected_md5}\n"
+                f"Actual:   {actual}"
+            )
+        print(f"MD5 OK: {name}")
+
+    return output_path
 
 
-def download_all_parts(manifest):
-    os.makedirs(PARTS_DIR, exist_ok=True)
-    part_paths = []
+def download_all_files_parallel(files):
+    print(f"Downloading {len(files)} file(s), {MAX_PARALLEL_DOWNLOADS} at a time...")
+    downloaded_paths = []
 
-    for index, file_info in enumerate(manifest["files"], start=1):
-        url = file_info["url"]
-        filename = file_info.get("name") or f"paks.zip.{index:03d}"
-        expected_sha = file_info.get("sha256")
-        output_path = os.path.join(PARTS_DIR, filename)
-        part_paths.append(output_path)
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_DOWNLOADS) as executor:
+        future_map = {
+            executor.submit(download_one_file, item): item
+            for item in files
+        }
 
-        if os.path.exists(output_path):
-            if expected_sha:
-                try:
-                    if sha256_file(output_path).lower() == expected_sha.lower():
-                        print(f"Part already downloaded and verified: {filename}")
-                        continue
-                    else:
-                        print(f"Existing part failed hash check, redownloading: {filename}")
-                        os.remove(output_path)
-                except Exception:
-                    os.remove(output_path)
-            else:
-                print(f"Part already exists, skipping: {filename}")
-                continue
+        for future in as_completed(future_map):
+            item = future_map[future]
+            name = item["name"]
+            try:
+                path = future.result()
+                downloaded_paths.append(path)
+                print(f"Finished: {name}")
+            except Exception as e:
+                print(f"Failed: {name}")
+                raise e
 
-        download_file(url, output_path, expected_sha256=expected_sha)
-
-    return part_paths
+    return downloaded_paths
 
 
-def merge_parts(part_paths, output_zip_path):
-    temp_zip_path = output_zip_path + ".merge"
+# =========================
+# MERGE / EXTRACT
+# =========================
 
-    if os.path.exists(temp_zip_path):
-        os.remove(temp_zip_path)
+def sorted_split_files(files):
+    """
+    Handles split ZIP naming like:
+    paks.z01
+    paks.z02
+    paks.z03
+    paks.zip
 
-    print("Merging downloaded parts into paks.zip...")
-    total_size = sum(os.path.getsize(p) for p in part_paths)
+    Merge order must be:
+    .z01, .z02, .z03 ... .zip
+    """
+    def sort_key(item):
+        name = item["name"].lower()
 
-    with open(temp_zip_path, "wb") as outfile, tqdm(
-        total=total_size,
-        unit="B",
-        unit_scale=True,
-        unit_divisor=1024,
-        desc="Merging",
-    ) as bar:
-        for part in part_paths:
-            with open(part, "rb") as infile:
-                while True:
-                    chunk = infile.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    outfile.write(chunk)
-                    bar.update(len(chunk))
+        if name.endswith(".zip"):
+            return 999999
+
+        base, ext = os.path.splitext(name)
+        if ext.startswith(".z") and ext[2:].isdigit():
+            return int(ext[2:])
+
+        return 500000
+
+    return sorted(files, key=sort_key)
+
+
+def merge_parts(manifest):
+    zip_name = manifest.get("zip_name", DEFAULT_ZIP_NAME)
+    output_zip_path = os.path.join(SCRIPT_DIR, zip_name)
+
+    files = sorted_split_files(manifest["files"])
+
+    print("Merging split files into final ZIP...")
+    print(f"Output: {output_zip_path}")
 
     if os.path.exists(output_zip_path):
         os.remove(output_zip_path)
-    os.rename(temp_zip_path, output_zip_path)
-    print(f"Merged ZIP created: {output_zip_path}")
+
+    with open(output_zip_path, "wb") as outfile:
+        for item in files:
+            part_path = os.path.join(DOWNLOAD_DIR, item["name"])
+            if not os.path.exists(part_path):
+                raise FileNotFoundError(f"Missing downloaded part: {part_path}")
+
+            print(f"Adding: {item['name']}")
+            with open(part_path, "rb") as infile:
+                shutil.copyfileobj(infile, outfile, length=16 * 1024 * 1024)
+
+    if os.path.getsize(output_zip_path) < 1000:
+        raise RuntimeError("Merged ZIP appears too small/corrupt.")
+
+    print("Merge complete.")
+    return output_zip_path
 
 
-def download_latest_file(manifest):
-    if os.path.exists(ZIP_FILE_PATH):
-        os.remove(ZIP_FILE_PATH)
-
-    part_paths = download_all_parts(manifest)
-    merge_parts(part_paths, ZIP_FILE_PATH)
-
-    if os.path.exists(ZIP_FILE_PATH) and os.path.getsize(ZIP_FILE_PATH) > 1000:
-        size_gb = os.path.getsize(ZIP_FILE_PATH) / (1024 ** 3)
-        print(f"Final ZIP size: {size_gb:.2f} GB")
-        return True
-
-    print("Download or merge failed.")
-    return False
-
-
-# -----------------------------
-# Extraction
-# -----------------------------
 def unzip_file(zip_file_path, destination_folder):
     try:
         os.makedirs(destination_folder, exist_ok=True)
-        print("Testing ZIP file before extraction...")
+
+        print(f"Extracting to: {destination_folder}")
+
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
-            bad_file = zip_ref.testzip()
-            if bad_file:
-                print(f"ZIP test failed. First bad file: {bad_file}")
-                return False
+            members = zip_ref.namelist()
 
-            print(f"Extracting to: {destination_folder}")
-            members = zip_ref.infolist()
-            total_size = sum(m.file_size for m in members)
+            for member in tqdm(members, desc="Extracting", unit="file"):
+                target_path = os.path.join(destination_folder, member)
 
-            with tqdm(total=total_size, unit="B", unit_scale=True, unit_divisor=1024, desc="Extracting") as bar:
-                for member in members:
-                    target_path = os.path.join(destination_folder, member.filename)
-                    if os.path.exists(target_path):
-                        try:
-                            if os.path.isdir(target_path):
-                                shutil.rmtree(target_path)
-                            else:
-                                os.remove(target_path)
-                        except PermissionError:
-                            print(f"Warning: Could not remove {target_path}. Check permissions.")
+                if os.path.exists(target_path):
+                    try:
+                        if os.path.isdir(target_path):
+                            shutil.rmtree(target_path)
+                        else:
+                            os.remove(target_path)
+                    except PermissionError:
+                        print(f"Warning: Could not remove {target_path}. Check permissions.")
 
-                    zip_ref.extract(member, destination_folder)
-                    bar.update(member.file_size)
+                zip_ref.extract(member, destination_folder)
 
-        print(f"Successfully extracted {zip_file_path} to {destination_folder}")
+        print("Extraction complete.")
         return True
 
     except zipfile.BadZipFile:
-        print("Error: The merged file is not a valid zip file.")
+        print("Error: The merged file is not a valid ZIP.")
+        return False
     except PermissionError:
-        print("Error: Permission denied. Try running as administrator or selecting another folder.")
+        print("Error: Permission denied. Try running as administrator or choose another folder.")
+        return False
     except Exception as e:
         print(f"Unexpected extraction error: {e}")
-    return False
+        return False
 
 
-# -----------------------------
-# Main
-# -----------------------------
+def cleanup_download_parts(manifest):
+    choice = input("Delete downloaded chunk files to save space? (y/n): ").strip().lower()
+    if choice != "y":
+        return
+
+    for item in manifest["files"]:
+        path = os.path.join(DOWNLOAD_DIR, item["name"])
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception as e:
+            print(f"Could not delete {path}: {e}")
+
+    try:
+        if os.path.isdir(DOWNLOAD_DIR) and not os.listdir(DOWNLOAD_DIR):
+            os.rmdir(DOWNLOAD_DIR)
+    except Exception:
+        pass
+
+    print("Downloaded chunks deleted.")
+
+
+# =========================
+# MAIN
+# =========================
+
 def main():
     config = load_config()
-    manifest = get_manifest()
-    latest_signature = manifest_signature(manifest)
-    last_signature = config.get("last_manifest_signature")
 
-    print(f"Latest version: {manifest.get('version')}")
+    manifest = fetch_manifest()
+    manifest = resolve_manifest(manifest)
 
-    if last_signature != latest_signature:
-        print("Update detected! Removing old ZIP and downloading latest parts...")
-        if os.path.exists(ZIP_FILE_PATH):
-            os.remove(ZIP_FILE_PATH)
-        # Keep old part files only if names/hash match; mismatched parts get redownloaded.
-        config["last_manifest_signature"] = latest_signature
-        config["last_version"] = manifest.get("version")
+    version = str(manifest.get("version", "unknown"))
+    sig = manifest_signature(manifest)
+
+    last_sig = config.get("last_manifest_signature")
+    last_version = config.get("last_version")
+
+    print(f"Latest version: {version}")
+    print(f"Last version: {last_version or 'none'}")
+
+    zip_name = manifest.get("zip_name", DEFAULT_ZIP_NAME)
+    zip_path = os.path.join(SCRIPT_DIR, zip_name)
+
+    update_needed = (sig != last_sig) or not os.path.exists(zip_path)
+
+    if update_needed:
+        print("Update detected or local ZIP missing.")
+        if os.path.exists(zip_path):
+            print("Removing old merged ZIP...")
+            os.remove(zip_path)
+
+        download_all_files_parallel(manifest["files"])
+        zip_path = merge_parts(manifest)
+
+        config["last_version"] = version
+        config["last_manifest_signature"] = sig
         save_config(config)
-
-    if not os.path.exists(ZIP_FILE_PATH):
-        success = download_latest_file(manifest)
-        if not success:
-            print("Failed to download/merge ZIP file.")
-            input("Press Enter to exit...")
-            return
     else:
-        print("ZIP file already exists. Skipping download.")
+        print("Already on latest version. Skipping download/merge.")
 
     destination_folder = config.get("destination_folder")
+
     if not destination_folder:
-        print("No saved path found. Trying to auto-detect ARK install...")
+        print("No saved destination found. Trying to auto-detect ARK install...")
         destination_folder = find_ark_install_path()
+
         if destination_folder:
             print(f"Auto-detected ARK path: {destination_folder}")
             config["destination_folder"] = destination_folder.replace("\\", "/")
@@ -399,13 +541,25 @@ def main():
             print("Could not auto-detect ARK install. Please select folder manually.")
             destination_folder = select_destination_folder(config)
 
-    if destination_folder:
-        print(f"Using destination: {destination_folder}")
-        unzip_file(ZIP_FILE_PATH, destination_folder)
-    else:
-        print("No folder selected. Exiting...")
+    if not destination_folder:
+        print("No destination selected. Exiting.")
+        return
 
-    input("Press Enter to exit...")
+    print(f"Using destination: {destination_folder}")
+
+    installed_version = config.get("last_installed_version")
+    if installed_version == version and not update_needed:
+        choice = input("This version already appears installed. Extract again? (y/n): ").strip().lower()
+        if choice != "y":
+            print("Nothing to do.")
+            return
+
+    success = unzip_file(zip_path, destination_folder)
+
+    if success:
+        config["last_installed_version"] = version
+        save_config(config)
+        cleanup_download_parts(manifest)
 
 
 if __name__ == "__main__":
@@ -415,4 +569,5 @@ if __name__ == "__main__":
         import traceback
         print("\nERROR:")
         traceback.print_exc()
-        input("\nPress Enter to exit...")
+
+    input("\nPress Enter to exit...")
