@@ -1,1 +1,22 @@
-https://mega.nz/file/OEkgGY4K#s2epFy_13EDZ_fzN5Q2k3E6cDEgKgTNSL4d7Z43UHyI
+{
+  "version": "1.0",
+  "zip_name": "paks.zip",
+  "files": [
+    {
+      "name": "paks.zip",
+      "url": "https://pixeldrain.com/api/file/tjk1E2K8"
+    },
+    {
+      "name": "paks.z01",
+      "url": "https://pixeldrain.com/api/file/fUoSeZHH"
+    },
+    {
+      "name": "paks.z02",
+      "url": "https://pixeldrain.com/api/file/VpTvP1cH"
+    },
+    {
+      "name": "paks.z03",
+      "url": "https://pixeldrain.com/api/file/YmC9xhwP"
+    }
+  ]
+}
