@@ -11,9 +11,9 @@
 # MANUAL PROCESS BELOW - depreciated
 ### AFFWKG
 
-### Prerequisites - Download Koalageddon from [HERE](https://github.com/acidicoala/Koalageddon) and .pak files from [HERE](https://mega.nz/file/nJs3EC5C#yEuuF2VDshZxym8jL_qESEOqXAoumBdoOdZV6lDy_D4)
+### Prerequisites - Download Koalageddon from [HERE](https://github.com/acidicoala/Koalageddon) and .pak files from [HERE](https://github.com/StayLiquidy/AFFWKG/releases/tag/paks-v5.10.26)
 
-###### If not working [MIRROR](https://limewire.com/d/f85967a4-919f-4ef6-af30-dd3ce7a24659#0gLR8mk-Kz7Kvba_YuGYiSwP_nPgLrhVLd9PlNshYyc)
+###### If not working [MIRROR](https://pixeldrain.com/l/Ki2ai5PB)
 
 First Install Koalageddon following the instructions in their github
 
