@@ -1,46 +1,6 @@
 {
-  "version": "5.10.26",
+  "version": "3.0",
   "zip_name": "paks.zip",
-  "files": [
-    {
-      "name": "paks.z01",
-      "url": "https://pixeldrain.com/api/file/ZTogy7GY"
-    },
-    {
-      "name": "paks.z02",
-      "url": "https://pixeldrain.com/api/file/buqkaiyo"
-    },
-    {
-      "name": "paks.z03",
-      "url": "https://pixeldrain.com/api/file/Wc3DWZ44"
-    },
-    {
-      "name": "paks.z04",
-      "url": "https://pixeldrain.com/api/file/XpeqYFHq"
-    },
-    {
-      "name": "paks.z05",
-      "url": "https://pixeldrain.com/api/file/rEdQ9V6m"
-    },
-    {
-      "name": "paks.z06",
-      "url": "https://pixeldrain.com/api/file/7Xrty1w1"
-    },
-    {
-      "name": "paks.z07",
-      "url": "https://pixeldrain.com/api/file/h17q1ELS"
-    },
-    {
-      "name": "paks.z08",
-      "url": "https://pixeldrain.com/api/file/28KwKQA8"
-    },
-    {
-      "name": "paks.z09",
-      "url": "https://pixeldrain.com/api/file/USiMizcr"
-    },
-    {
-      "name": "paks.zip",
-      "url": "https://pixeldrain.com/api/file/QtD1oTcX"
-    }
-  ]
+  "provider": "gofile",
+  "folder_url": "https://gofile.io/d/XBEOYa"
 }
