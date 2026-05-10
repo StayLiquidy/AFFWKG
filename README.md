@@ -2,7 +2,7 @@
 
 ### •───────────────────────────⋅☾☽⋅───────────────────────────•
 
-# Automated Installer Now Available [HERE](https://github.com/StayLiquidy/AFFWKG/releases/download/release-v0.14.5/AFFWKG-v0.14.5.zip)
+# Automated Installer Now Available [HERE](https://github.com/StayLiquidy/AFFWKG/releases/download/release-v0.15/AFFWKG-v0.15.zip)
 ###### ^ Updated as of  5/9/2026 (ONLY WORKING WITHOUT BATTLEYE AS OF NOW)
 ### Extract .zip file and follow README.txt instructions located in the File
 
